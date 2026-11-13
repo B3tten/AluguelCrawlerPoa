@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RentCrawler · Aluguéis em {{ city }}</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --ink: #101828;
+    --muted: #667085;
+    --line: #e4e7ec;
+    --accent: #0f766e;
+    --zap: #2563eb;
+    --qa: #db2777;
+    --vr: #7c3aed;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  header {
+    background: linear-gradient(120deg, #0f766e, #115e59 60%, #134e4a);
+    color: #fff;
+    padding: 26px 28px 22px;
+  }
+  .header-inner { max-width: 1360px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; justify-content: space-between; }
+  h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
+  .subtitle { margin: 6px 0 0; color: #ccfbf1; font-size: 14px; }
+  .header-stats { display: flex; gap: 22px; }
+  .stat b { display: block; font-size: 24px; line-height: 1; }
+  .stat span { font-size: 12px; color: #99f6e4; text-transform: uppercase; letter-spacing: .08em; }
+
+  .toolbar {
+    max-width: 1360px; margin: 18px auto 0; padding: 0 28px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  }
+  .search {
+    flex: 1 1 260px; min-width: 220px;
+    display: flex; align-items: center; gap: 8px;
+    background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px;
+  }
+  .search input { border: 0; outline: 0; font-size: 14px; width: 100%; background: transparent; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    border: 1px solid var(--line); background: #fff; color: var(--muted);
+    padding: 8px 13px; border-radius: 999px; font-size: 13px; cursor: pointer;
+    transition: .15s;
+  }
+  .chip:hover { border-color: #cbd5e1; }
+  .chip.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  select, .price-box {
+    border: 1px solid var(--line); background: #fff; border-radius: 10px;
+    padding: 9px 10px; font-size: 13px; color: var(--ink);
+  }
+  .price-box { display: flex; align-items: center; gap: 8px; }
+  .price-box input[type=range] { width: 130px; accent-color: var(--accent); }
+  .price-box b { font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; }
+
+  .refresh-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+    padding: 10px 16px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(15, 118, 110, .22);
+    transition: background .15s, opacity .15s;
+  }
+  .refresh-btn:hover { background: #0d6963; }
+  .refresh-btn:disabled { opacity: .7; cursor: progress; }
+  .refresh-btn.loading .refresh-icon { animation: spin 1s linear infinite; }
+  .refresh-icon { display: inline-block; font-size: 15px; line-height: 1; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .status-bar {
+    max-width: 1360px; margin: 10px auto 0; padding: 0 28px;
+    font-size: 13px; color: var(--muted);
+  }
+  .status-bar.error { color: #b42318; }
+
+  main { max-width: 1360px; margin: 0 auto; padding: 18px 28px 60px; }
+  .board { display: grid; grid-template-columns: 1.05fr 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 1040px) { .board { grid-template-columns: 1fr; } }
+
+  .map-wrap {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 10px; position: sticky; top: 12px;
+  }
+  #map { height: clamp(320px, 56vh, 620px); border-radius: 9px; }
+  @media (max-width: 1040px) {
+    #map { height: clamp(300px, 52vh, 460px); }
+    .map-wrap { position: relative; top: auto; }
+  }
+  .map-legend { display: flex; gap: 14px; padding: 8px 4px 2px; font-size: 12px; color: var(--muted); }
+  .map-hint { margin-left: auto; }
+  @media (max-width: 620px) { .map-hint { display: none; } }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+
+  .map-actions {
+    position: absolute; top: 18px; right: 18px; z-index: 900;
+    display: flex; gap: 6px; align-items: flex-start;
+  }
+  .map-btn {
+    background: #fff; color: #344054; border: 1px solid var(--line);
+    border-radius: 9px; padding: 7px 11px; font-size: 12px; font-weight: 600;
+    cursor: pointer; box-shadow: 0 2px 8px rgba(16, 24, 40, .12);
+    display: inline-flex; align-items: center; gap: 6px; transition: .15s;
+  }
+  .map-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+  .map-btn.icon { padding: 7px 9px; font-size: 14px; }
+  .map-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  @media (max-width: 620px) {
+    .map-actions { top: 10px; right: 10px; gap: 4px; }
+    .map-btn .btn-label { display: none; }
+    .map-btn { padding: 7px 9px; }
+    .area-chip { left: 10px; bottom: 10px; font-size: 11px; }
+    .toolbar { padding: 0 16px; }
+    main { padding: 14px 16px 50px; }
+    .status-bar { padding: 0 16px; }
+  }
+
+  .area-chip {
+    position: absolute; left: 18px; bottom: 18px; z-index: 900;
+    background: rgba(16, 24, 40, .85); color: #fff; font-size: 12px;
+    padding: 7px 10px; border-radius: 999px; display: flex; align-items: center; gap: 8px;
+    backdrop-filter: blur(3px);
+  }
+  .area-chip button { background: none; border: 0; color: #fff; cursor: pointer; font-size: 13px; line-height: 1; }
+  .area-chip[hidden] { display: none; }
+
+  .map-wrap.expanded {
+    position: fixed; inset: 12px; z-index: 2500; padding: 10px;
+    box-shadow: 0 24px 60px rgba(16, 24, 40, .35);
+  }
+  .map-wrap.expanded #map { height: calc(100vh - 64px); }
+  body.map-expanded { overflow: hidden; }
+
+  .marker-cluster-custom { background: transparent; border: 0; }
+  .marker-cluster-custom .cluster-inner {
+    width: 100%; height: 100%; border-radius: 50%;
+    background: rgba(15, 118, 110, .92); color: #fff;
+    border: 2px solid #fff; box-shadow: 0 2px 10px rgba(16, 24, 40, .35);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .map-popup img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; margin-bottom: 6px; }
+  .map-popup .mp-price { font-weight: 700; color: var(--accent); margin: 3px 0; }
+  .map-popup a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .card.card-active { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden; display: flex; flex-direction: column;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(16, 24, 40, .09); }
+  .thumb {
+    position: relative; height: 168px; background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+    cursor: pointer; overflow: hidden;
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .badge-source {
+    position: absolute; top: 10px; left: 10px; color: #fff; font-size: 11px; font-weight: 600;
+    padding: 5px 9px; border-radius: 999px; letter-spacing: .02em; backdrop-filter: blur(3px);
+  }
+  .badge-source.zap { background: rgba(37, 99, 235, .92); }
+  .badge-source.quinto_andar { background: rgba(219, 39, 119, .92); }
+  .badge-source.viva_real { background: rgba(124, 58, 237, .92); }
+  .photo-count {
+    position: absolute; bottom: 10px; right: 10px; background: rgba(16, 24, 40, .72); color: #fff;
+    font-size: 11px; padding: 4px 8px; border-radius: 999px;
+  }
+  .card-body { padding: 13px 15px 15px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .price { font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
+  .price small { font-size: 12px; font-weight: 500; color: var(--muted); }
+  .price-breakdown { font-size: 12px; color: var(--muted); }
+  .card h3 { margin: 2px 0 0; font-size: 14px; font-weight: 600; line-height: 1.35; }
+  .addr { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+  .fact { background: #f2f4f7; color: #344054; font-size: 11.5px; padding: 4px 8px; border-radius: 7px; }
+  .card-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 4px; gap: 8px; }
+  .card-footer a { font-size: 12.5px; color: var(--accent); font-weight: 600; text-decoration: none; }
+  .card-footer a:hover { text-decoration: underline; }
+  .cf-right { display: inline-flex; align-items: center; gap: 7px; }
+
+  .map-link {
+    background: #fff; border: 1px solid var(--line); color: var(--accent);
+    border-radius: 999px; padding: 3px 9px 3px 7px; font-size: 11.5px; font-weight: 700;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+    line-height: 1.5; transition: background .15s, border-color .15s, color .15s;
+    font-family: inherit;
+  }
+  .map-link:hover { background: #f0fdfa; border-color: var(--accent); }
+  .map-link.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .map-link .pin { font-size: 12.5px; line-height: 1; }
+
+  .card.card-selected { outline: 2px solid var(--accent); outline-offset: 2px; background: #f6fefc; }
+  .marker-selected-halo { animation: haloPulse 1.7s ease-in-out infinite; }
+  @keyframes haloPulse {
+    0%, 100% { stroke-opacity: .95; fill-opacity: .18; }
+    50% { stroke-opacity: .35; fill-opacity: .06; }
+  }
+  .code { font-size: 11px; color: #98a2b3; }
+
+  .empty { grid-column: 1 / -1; background: #fff; border: 1px dashed var(--line); border-radius: var(--radius); padding: 40px; text-align: center; color: var(--muted); }
+  .count-line { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+
+  /* modal */
+  .modal { position: fixed; inset: 0; background: rgba(16, 24, 40, .55); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 3000; }
+  .modal.open { display: flex; }
+  .modal-box { background: #fff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 92vh; overflow: auto; }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; }
+  .modal-head h2 { margin: 0; font-size: 16px; }
+  .modal-close { border: 0; background: #f2f4f7; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 16px; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; padding: 14px; }
+  .gallery img { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; background: #e2e8f0; }
+  .modal-info { padding: 4px 18px 18px; font-size: 13.5px; color: #344054; line-height: 1.55; }
+  .leaflet-popup-content { font-size: 12.5px; }
+  .leaflet-popup-content a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div>
+      <h1>RentCrawler · Aluguéis em {{ city }}</h1>
+      <p class="subtitle">Dados coletados por ZAP Imóveis e QuintoAndar · atualizado a cada execução dos crawlers</p>
+    </div>
+    <div class="header-stats">
+      <div class="stat"><b id="stat-total">0</b><span>imóveis</span></div>
+      <div class="stat"><b id="stat-sources">0</b><span>portais</span></div>
+      <div class="stat"><b id="stat-map">0</b><span>no mapa</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <div class="search">
+    <span>🔍</span>
+    <input id="q" type="search" placeholder="Buscar por bairro, rua, título ou código…">
+  </div>
+  <div class="chips" id="source-chips"></div>
+  <select id="bedrooms">
+    <option value="">Quartos: todos</option>
+    <option value="1">1+ quarto</option>
+    <option value="2">2+ quartos</option>
+    <option value="3">3+ quartos</option>
+    <option value="4">4+ quartos</option>
+  </select>
+  <div class="price-box">
+    <span style="font-size:12px;color:#667085">Até</span>
+    <input id="max-price" type="range" min="0" max="100" value="100">
+    <b id="max-price-label">—</b>
+  </div>
+  <select id="sort">
+    <option value="price-asc">Menor aluguel total</option>
+    <option value="price-desc">Maior aluguel total</option>
+    <option value="area-desc">Maior área</option>
+    <option value="recent">Mais recentes</option>
+  </select>
+  <button id="refresh" class="refresh-btn" title="Executar os crawlers agora e buscar anúncios novos">
+    <span class="refresh-icon">⟳</span> Buscar atualizações
+  </button>
+</div>
+<div class="status-bar" id="crawl-status" hidden></div>
+
+<main>
+  <div class="board">
+    <div class="map-wrap" id="map-wrap">
+      <div id="map"></div>
+      <div class="map-actions">
+        <button class="map-btn" id="map-search-area" title="Mostrar só os imóveis dentro do mapa atual">⌖ <span class="btn-label">Buscar nesta área</span></button>
+        <button class="map-btn icon" id="map-reset" title="Ver todos os imóveis">⤢</button>
+        <button class="map-btn icon" id="map-full" title="Expandir mapa">⛶</button>
+      </div>
+      <div class="area-chip" id="area-chip" hidden>
+        <span id="area-chip-label"></span>
+        <button id="area-clear" title="Limpar filtro de área">✕</button>
+      </div>
+      <div class="map-legend">
+        <span><i class="dot" style="background:#2563eb"></i>ZAP Imóveis</span>
+        <span><i class="dot" style="background:#db2777"></i>QuintoAndar</span>
+        <span class="map-hint">Scroll para zoom · arraste para mover</span>
+      </div>
+    </div>
+    <div>
+      <p class="count-line"><span id="count">0</span> imóveis exibidos</p>
+      <div class="grid" id="grid"></div>
+    </div>
+  </div>
+</main>
+
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="modal-title">Imóvel</h2>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="gallery" id="modal-gallery"></div>
+    <div class="modal-info" id="modal-info"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+  const LISTINGS = {{ listings|tojson }};
+  const CITY_CENTER = {{ city_center|tojson }};
+  const NEWEST = {{ newest|tojson }};
+  const SOURCE_COLORS = { zap: '#2563eb', quinto_andar: '#db2777', viva_real: '#7c3aed' };
+
+  const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+
+  const totals = LISTINGS.map(l => totalOf(l)).filter(v => v != null && v > 0);
+  const maxTotal = totals.length ? Math.max(...totals) : 0;
+
+  const state = { q: '', source: '', bedrooms: '', maxPrice: maxTotal, sort: 'price-asc', bounds: null };
+
+  document.getElementById('max-price').max = Math.ceil(maxTotal / 100) * 100;
+  document.getElementById('max-price').value = Math.ceil(maxTotal / 100) * 100;
+  state.maxPrice = Math.ceil(maxTotal / 100) * 100;
+
+  const map = L.map('map', { scrollWheelZoom: true }).setView(CITY_CENTER, 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  function clusterIcon(cluster) {
+    const count = cluster.getChildCount();
+    const size = count < 10 ? 34 : count < 50 ? 42 : 50;
+    return L.divIcon({
+      html: `<div class="cluster-inner">${count}</div>`,
+      className: 'marker-cluster-custom',
+      iconSize: L.point(size, size),
+    });
+  }
+
+  const markers = typeof L.markerClusterGroup === 'function'
+    ? L.markerClusterGroup({
+        maxClusterRadius: 48,
+        showCoverageOnHover: false,
+        spiderfyOnMaxZoom: true,
+        iconCreateFunction: clusterIcon,
+      })
+    : L.layerGroup();
+  markers.addTo(map);
+
+  const markersByKey = new Map();
+  window.rentMap = map;
+  let selectedKey = null;
+  let selectionHalo = null;
+
+  function totalOf(l) {
+    if (l.total != null) return l.total;
+    const parts = [l.rent, l.condo, l.iptu].filter(v => v != null);
+    return parts.length ? parts.reduce((a, b) => a + b, 0) : null;
+  }
+
+  function money(value) { return value == null ? '—' : brl.format(value); }
+
+  function imgSrc(url) { return url ? '/img?u=' + encodeURIComponent(url) : ''; }
+
+  function esc(text) {
+    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function filtered() {
+    const q = state.q.trim().toLowerCase();
+    let list = LISTINGS.filter(l => {
+      if (state.source && l.source !== state.source) return false;
+      if (state.bedrooms && !((l.bedrooms || 0) >= Number(state.bedrooms))) return false;
+      const total = totalOf(l);
+      if (total != null && total > state.maxPrice) return false;
+      if (state.bounds) {
+        if (l.lat == null || l.lng == null) return false;
+        if (!state.bounds.contains(L.latLng(l.lat, l.lng))) return false;
+      }
+      if (q) {
+        const haystack = [l.title, l.neighbourhood, l.street, l.city, l.code, l.zone, l.description]
+          .filter(Boolean).join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+
+    list.sort((a, b) => {
+      if (state.sort === 'price-asc') return (totalOf(a) ?? 1e9) - (totalOf(b) ?? 1e9);
+      if (state.sort === 'price-desc') return (totalOf(b) ?? -1) - (totalOf(a) ?? -1);
+      if (state.sort === 'area-desc') return (b.area ?? -1) - (a.area ?? -1);
+      return String(b.scrapped_at || '').localeCompare(String(a.scrapped_at || ''));
+    });
+    return list;
+  }
+
+  function card(l) {
+    const total = totalOf(l);
+    const breakdown = [
+      l.rent != null ? `Aluguel ${money(l.rent)}` : null,
+      l.condo ? `Cond. ${money(l.condo)}` : null,
+      l.iptu ? `IPTU ${money(l.iptu)}` : null,
+    ].filter(Boolean).join(' · ');
+
+    const addressLine = [
+      [l.street, l.street_number].filter(Boolean).join(', '),
+      l.neighbourhood,
+      l.zone,
+      l.city,
+    ].filter(Boolean).join(' · ');
+
+    const facts = [
+      l.area ? `${Math.round(l.area)} m²` : null,
+      l.bedrooms ? `${l.bedrooms} quarto${l.bedrooms > 1 ? 's' : ''}` : null,
+      l.suites ? `${l.suites} suíte${l.suites > 1 ? 's' : ''}` : null,
+      l.bathrooms ? `${l.bathrooms} banh.` : null,
+      l.parking ? `${l.parking} vaga${l.parking > 1 ? 's' : ''}` : null,
+    ].filter(Boolean).map(f => `<span class="fact">${esc(f)}</span>`).join('');
+
+    const thumb = l.image
+      ? `<img loading="lazy" src="${esc(imgSrc(l.image))}" alt="${esc(l.title || 'Imóvel')}"
+             onerror="this.style.display='none'">`
+      : '';
+
+    return `
+      <article class="card" data-key="${esc(l.source)}:${esc(l.code)}">
+        <div class="thumb" onclick="openModal('${esc(l.code)}')">
+          ${thumb}
+          <span class="badge-source ${esc(l.source)}">${esc(l.source_label)}</span>
+          ${l.images && l.images.length ? `<span class="photo-count">📷 ${l.images.length}</span>` : ''}
+        </div>
+        <div class="card-body">
+          <div>
+            <div class="price">${money(total)} <small>/mês</small></div>
+            <div class="price-breakdown">${esc(breakdown || 'Valores não informados')}</div>
+          </div>
+          <h3>${esc(l.title || 'Imóvel para alugar')}</h3>
+          <div class="addr">${esc(addressLine || 'Endereço não informado')}</div>
+          <div class="facts">${facts}</div>
+          <div class="card-footer">
+            <a href="${esc(l.url || '#')}" target="_blank" rel="noopener">Ver no portal ↗</a>
+            <div class="cf-right">
+              ${l.lat != null && l.lng != null ? `<button type="button" class="map-link" data-map-key="${esc(l.source)}:${esc(l.code)}" title="Ver este imóvel no mapa"><span class="pin">⌖</span> Mapa</button>` : ''}
+              <span class="code">#${esc(l.code)}</span>
+            </div>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function popupHtml(l) {
+    const image = l.image
+      ? `<img src="${esc(imgSrc(l.image))}" onerror="this.remove()">`
+      : '';
+    return `<div class="map-popup">
+      ${image}
+      <b>${esc(l.title || 'Imóvel')}</b>
+      <div style="color:#667085">${esc([l.neighbourhood, l.zone].filter(Boolean).join(' · '))}</div>
+      <div class="mp-price">${money(totalOf(l))} /mês</div>
+      <a href="${esc(l.url || '#')}" target="_blank" rel="noopener">Abrir no portal ↗</a>
+    </div>`;
+  }
+
+  function cardByKey(key) {
+    return [...document.querySelectorAll('#grid .card')].find(card => card.dataset.key === key);
+  }
+
+  function highlightCard(key) {
+    document.querySelectorAll('#grid .card-active').forEach(card => card.classList.remove('card-active'));
+    const card = cardByKey(key);
+    if (!card) return;
+    card.classList.add('card-active');
+    card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    clearTimeout(highlightCard.timer);
+    highlightCard.timer = setTimeout(() => card.classList.remove('card-active'), 2600);
+  }
+
+  // ------------------------------------------------- map selection ------
+  function clearSelection() {
+    selectedKey = null;
+    if (selectionHalo) {
+      map.removeLayer(selectionHalo);
+      selectionHalo = null;
+    }
+    document.querySelectorAll('#grid .card-selected').forEach(card => card.classList.remove('card-selected'));
+    document.querySelectorAll('.map-link.active').forEach(btn => btn.classList.remove('active'));
+  }
+
+  function paintSelection(key) {
+    const marker = key ? markersByKey.get(key) : null;
+    if (!marker) { clearSelection(); return null; }
+
+    selectedKey = key;
+    if (selectionHalo) map.removeLayer(selectionHalo);
+    selectionHalo = L.circleMarker(marker.getLatLng(), {
+      radius: 19, color: '#0f766e', weight: 2,
+      fillColor: '#0f766e', fillOpacity: 0.16,
+      interactive: false, className: 'marker-selected-halo',
+    }).addTo(map);
+
+    marker.setStyle({ radius: 11, weight: 3, color: '#0f766e' });
+    document.querySelectorAll('#grid .card').forEach(card => {
+      card.classList.toggle('card-selected', card.dataset.key === key);
+    });
+    document.querySelectorAll('.map-link').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mapKey === key);
+    });
+    return marker;
+  }
+
+  function selectListing(key, options = {}) {
+    const marker = paintSelection(key);
+    if (!marker) return;
+
+    const card = cardByKey(key);
+    if (card) {
+      card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    if (options.scrollMap !== false && window.innerWidth <= 1040) {
+      mapWrap.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+
+    const reveal = () => {
+      map.setView(marker.getLatLng(), options.zoom || 16, { animate: true, duration: 0.45 });
+      marker.openPopup();
+    };
+
+    if (typeof markers.zoomToShowLayer === 'function') markers.zoomToShowLayer(marker, reveal);
+    else reveal();
+  }
+
+  function renderMap(list, fit = true) {
+    markers.clearLayers();
+    markersByKey.clear();
+    const points = [];
+
+    list.forEach(l => {
+      if (l.lat == null || l.lng == null) return;
+
+      const key = `${l.source}:${l.code}`;
+      const marker = L.circleMarker([l.lat, l.lng], {
+        radius: 7, color: '#fff', weight: 1.5,
+        fillColor: SOURCE_COLORS[l.source] || '#0f766e', fillOpacity: 1,
+      });
+
+      marker.bindTooltip(money(totalOf(l)), { direction: 'top', offset: [0, -7], opacity: 0.95 });
+      marker.bindPopup(popupHtml(l), { maxWidth: 280, minWidth: 220 });
+      marker.on('click', () => {
+        highlightCard(key);
+        if (selectedKey !== key) paintSelection(key);
+      });
+      marker.on('mouseover', () => marker.setStyle({ radius: 10, weight: 3 }));
+      marker.on('mouseout', () => {
+        if (selectedKey === key) marker.setStyle({ radius: 11, weight: 3, color: '#0f766e' });
+        else marker.setStyle({ radius: 7, weight: 1.5, color: '#fff' });
+      });
+
+      markers.addLayer(marker);
+      markersByKey.set(key, marker);
+      points.push([l.lat, l.lng]);
+    });
+
+    if (selectedKey) {
+      if (markersByKey.has(selectedKey)) paintSelection(selectedKey);
+      else clearSelection();
+    }
+
+    if (fit && points.length) {
+      map.fitBounds(points, { padding: [30, 30], maxZoom: 14, animate: true, duration: 0.5 });
+    }
+  }
+
+  function render(options = {}) {
+    const list = filtered();
+    document.getElementById('grid').innerHTML = list.length
+      ? list.map(card).join('')
+      : '<div class="empty">Nenhum imóvel corresponde aos filtros.</div>';
+    document.getElementById('count').textContent = list.length;
+    renderMap(list, options.fit !== false);
+  }
+
+  const grid = document.getElementById('grid');
+
+  grid.addEventListener('click', event => {
+    const mapBtn = event.target.closest('.map-link');
+    if (mapBtn) {
+      event.preventDefault();
+      if (!mapBtn.disabled && mapBtn.dataset.mapKey) selectListing(mapBtn.dataset.mapKey);
+      return;
+    }
+    const cardEl = event.target.closest('.card');
+    if (!cardEl || event.target.closest('a') || event.target.closest('.thumb') || event.target.closest('button')) return;
+    selectListing(cardEl.dataset.key);
+  });
+
+  grid.addEventListener('mouseover', event => {
+    const cardEl = event.target.closest('.card');
+    if (!cardEl || cardEl.dataset.key === selectedKey) return;
+    const marker = markersByKey.get(cardEl.dataset.key);
+    if (marker) marker.setStyle({ radius: 10, weight: 3 });
+  });
+
+  grid.addEventListener('mouseout', event => {
+    const cardEl = event.target.closest('.card');
+    if (!cardEl || cardEl.dataset.key === selectedKey) return;
+    const marker = markersByKey.get(cardEl.dataset.key);
+    if (marker) marker.setStyle({ radius: 7, weight: 1.5, color: '#fff' });
+  });
+
+  // ------------------------------------------------- map interactions ----
+  const mapWrap = document.getElementById('map-wrap');
+  const areaChip = document.getElementById('area-chip');
+  const areaChipLabel = document.getElementById('area-chip-label');
+  const fullBtn = document.getElementById('map-full');
+
+  function clearArea() {
+    state.bounds = null;
+    areaChip.hidden = true;
+  }
+
+  document.getElementById('map-search-area').addEventListener('click', () => {
+    state.bounds = map.getBounds();
+    render({ fit: false });
+    areaChip.hidden = false;
+    areaChipLabel.textContent = `${document.getElementById('count').textContent} imóveis nesta área`;
+  });
+
+  document.getElementById('area-clear').addEventListener('click', () => {
+    clearArea();
+    render();
+  });
+
+  document.getElementById('map-reset').addEventListener('click', () => {
+    clearArea();
+    render();
+  });
+
+  function toggleFullscreen(force) {
+    const expanded = force !== undefined ? force : !mapWrap.classList.contains('expanded');
+    mapWrap.classList.toggle('expanded', expanded);
+    document.body.classList.toggle('map-expanded', expanded);
+    fullBtn.textContent = expanded ? '✕' : '⛶';
+    fullBtn.title = expanded ? 'Sair da tela cheia' : 'Expandir mapa';
+    setTimeout(() => map.invalidateSize(), 260);
+  }
+
+  fullBtn.addEventListener('click', () => toggleFullscreen());
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && mapWrap.classList.contains('expanded')) toggleFullscreen(false);
+  });
+
+  // keep the map crisp when the layout/viewport changes
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => map.invalidateSize(), 140);
+  });
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById('map'));
+  }
+
+  document.getElementById('q').addEventListener('input', e => { state.q = e.target.value; render(); });
+  document.getElementById('bedrooms').addEventListener('change', e => { state.bedrooms = e.target.value; render(); });
+  document.getElementById('sort').addEventListener('change', e => { state.sort = e.target.value; render(); });
+  const range = document.getElementById('max-price');
+  const rangeLabel = document.getElementById('max-price-label');
+  function updateRange() {
+    state.maxPrice = Number(range.value);
+    rangeLabel.textContent = money(state.maxPrice);
+    render();
+  }
+  range.addEventListener('input', updateRange);
+  rangeLabel.textContent = money(state.maxPrice);
+
+  const chipsBox = document.getElementById('source-chips');
+  const sources = [...new Set(LISTINGS.map(l => l.source))];
+  const chipData = [{ id: '', label: 'Todos' }].concat(
+    sources.map(s => ({ id: s, label: (LISTINGS.find(l => l.source === s) || {}).source_label || s }))
+  );
+  chipsBox.innerHTML = chipData.map((c, i) =>
+    `<button class="chip ${i === 0 ? 'active' : ''}" data-source="${esc(c.id)}">${esc(c.label)}</button>`
+  ).join('');
+  chipsBox.addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    chipsBox.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.source = chip.dataset.source;
+    render();
+  });
+
+  document.getElementById('stat-total').textContent = LISTINGS.length;
+  document.getElementById('stat-sources').textContent = sources.length;
+  document.getElementById('stat-map').textContent = LISTINGS.filter(l => l.lat != null && l.lng != null).length;
+
+  // ------------------------------------------------ real-time updates ----
+  const refreshBtn = document.getElementById('refresh');
+  const statusBar = document.getElementById('crawl-status');
+  let polling = false;
+
+  function setStatus(text, isError) {
+    if (!text) { statusBar.hidden = true; return; }
+    statusBar.hidden = false;
+    statusBar.textContent = text;
+    statusBar.classList.toggle('error', Boolean(isError));
+  }
+
+  function formatDate(value) {
+    if (!value) return 'nunca';
+    const date = new Date(value);
+    return isNaN(date) ? value : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  async function pollStatus(initial) {
+    if (polling) return;
+    polling = true;
+    try {
+      const res = await fetch('/api/crawl/status', { cache: 'no-store' });
+      const state = await res.json();
+
+      if (state.running) {
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add('loading');
+        setStatus(`${state.message}${state.elapsed ? ` · ${state.elapsed}s` : ''}`, false);
+        setTimeout(() => { polling = false; pollStatus(false); }, 2000);
+        return;
+      }
+
+      refreshBtn.disabled = false;
+      refreshBtn.classList.remove('loading');
+
+      if (state.error) {
+        setStatus(`A busca anterior falhou: ${state.error}`, true);
+      } else if (initial) {
+        const total = Object.values(state.counts || {}).reduce((a, b) => a + b, 0);
+        setStatus(`Base atual: ${total} imóveis em ${state.city} · última coleta em ${formatDate(NEWEST)}.`, false);
+      } else {
+        const parts = Object.entries(state.results || {}).map(([key, value]) => `${key}: ${value.saved} anúncios`);
+        setStatus(`Busca concluída — ${parts.join(' · ') || 'sem novidades'}. Recarregando…`, false);
+        setTimeout(() => window.location.reload(), 1200);
+      }
+    } catch (error) {
+      refreshBtn.disabled = false;
+      refreshBtn.classList.remove('loading');
+      setStatus('Não foi possível consultar o status da busca.', true);
+    } finally {
+      polling = false;
+    }
+  }
+
+  refreshBtn.addEventListener('click', async () => {
+    refreshBtn.disabled = true;
+    refreshBtn.classList.add('loading');
+    setStatus('Disparando os crawlers…', false);
+    try {
+      const res = await fetch('/api/crawl', { method: 'POST' });
+      if (res.status === 409) {
+        setStatus('Uma busca já está em andamento…', false);
+      }
+      pollStatus(false);
+    } catch (error) {
+      refreshBtn.disabled = false;
+      refreshBtn.classList.remove('loading');
+      setStatus('Não foi possível iniciar a busca.', true);
+    }
+  });
+
+  render();
+  pollStatus(true);
+
+  function openModal(code) {
+    const l = LISTINGS.find(item => item.code === code);
+    if (!l) return;
+    document.getElementById('modal-title').textContent = l.title || 'Imóvel';
+    document.getElementById('modal-gallery').innerHTML = (l.images || []).length
+      ? l.images.map(src => `<img src="${esc(imgSrc(src))}" onerror="this.remove()">`).join('')
+      : '<p style="color:#667085">Sem fotos disponíveis.</p>';
+    document.getElementById('modal-info').innerHTML = `
+      <p><b>${money(totalOf(l))}</b> /mês ${l.rent != null ? `· aluguel ${money(l.rent)}` : ''}
+      ${l.condo ? `· condomínio ${money(l.condo)}` : ''} ${l.iptu ? `· IPTU ${money(l.iptu)}` : ''}</p>
+      <p>${esc([l.street, l.street_number, l.neighbourhood, l.zone, l.city].filter(Boolean).join(' · '))}</p>
+      <p>${esc([l.area ? Math.round(l.area) + ' m²' : null, l.bedrooms ? l.bedrooms + ' quartos' : null,
+                 l.bathrooms ? l.bathrooms + ' banheiros' : null, l.parking ? l.parking + ' vagas' : null]
+                .filter(Boolean).join(' · '))}</p>
+      ${l.features && l.features.length ? `<p>${l.features.map(f => `<span class="fact">${esc(f)}</span>`).join(' ')}</p>` : ''}
+      ${l.description ? `<p style="color:#475467">${esc(l.description).slice(0, 900)}</p>` : ''}
+      <p><a href="${esc(l.url || '#')}" target="_blank" rel="noopener">Abrir anúncio no ${esc(l.source_label)} ↗</a></p>`;
+    document.getElementById('modal').classList.add('open');
+  }
+  function closeModal() { document.getElementById('modal').classList.remove('open'); }
+  document.getElementById('modal').addEventListener('click', e => {
+    if (e.target.id === 'modal') closeModal();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+</script>
+</body>
+</html>
